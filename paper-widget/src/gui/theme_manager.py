@@ -16,6 +16,10 @@ class ThemeManager:
         self.current_theme = "light"
         self.style = ttk.Style()
         
+        # 性能优化：缓存配置结果
+        self._font_cache = {}
+        self._color_cache = {}
+        
         # 配置高DPI支持
         self._configure_high_dpi()
         
@@ -163,8 +167,10 @@ class ThemeManager:
             }
     
     def get_current_colors(self):
-        """获取当前主题颜色"""
-        return self.colors[self.current_theme]
+        """获取当前主题颜色（带缓存）"""
+        if self.current_theme not in self._color_cache:
+            self._color_cache[self.current_theme] = self.colors[self.current_theme].copy()
+        return self._color_cache[self.current_theme]
     
     def get_conference_colors(self, conference_type):
         """获取会议类型对应的颜色"""
@@ -221,8 +227,11 @@ class ThemeManager:
         self.root.configure(bg=colors["bg"])
     
     def toggle_theme(self):
-        """切换主题"""
+        """切换主题（优化版本）"""
         self.current_theme = "dark" if self.current_theme == "light" else "light"
+        # 清除缓存以强制重新加载
+        self._color_cache.clear()
+        self._font_cache.clear()
         self.apply_theme()
         return self.current_theme
     
@@ -253,7 +262,13 @@ class ThemeManager:
         return style_name
     
     def get_font(self, font_type, scale_factor=1.0):
-        """获取指定类型的字体，支持动态缩放"""
+        """获取指定类型的字体，支持动态缩放（带缓存）"""
+        # 创建缓存键
+        cache_key = (font_type, scale_factor)
+        
+        if cache_key in self._font_cache:
+            return self._font_cache[cache_key]
+        
         # 增大字体大小，提升可读性（特别加大按钮字体）
         base_font_configs = {
             'title': ('Arial', 16, 'bold'),      # 12 -> 16
@@ -270,7 +285,10 @@ class ThemeManager:
         # 应用缩放因子
         scaled_size = max(8, int(size * scale_factor))
         
-        return (family, scaled_size, weight)
+        result = (family, scaled_size, weight)
+        # 缓存结果
+        self._font_cache[cache_key] = result
+        return result
     
     def get_conference_type(self, conference_name):
         """根据会议名称判断类型"""

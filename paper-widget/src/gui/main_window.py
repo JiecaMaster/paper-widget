@@ -48,11 +48,16 @@ class PaperWidget:
         self.current_scale_factor = 1.0
         self.min_card_width = 400
         
+        # 性能优化参数
+        self.resize_timer = None
+        self.last_window_size = (width, height)
+        self.is_resizing = False
+        
         # 创建UI
         self.setup_ui()
         
-        # 绑定窗口尺寸变化事件
-        self.root.bind('<Configure>', self.on_window_resize)
+        # 绑定窗口尺寸变化事件（使用防抖）
+        self.root.bind('<Configure>', self.on_window_resize_debounced)
         
         # 首次加载论文
         self.refresh_papers()
@@ -176,14 +181,29 @@ class PaperWidget:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 绑定鼠标滚轮和触摸板滚动
+        # 绑定鼠标滚轮和触摸板滚动（优化版本）
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            # 优化滚动响应速度
+            try:
+                delta = int(-1 * (event.delta / 120))
+                canvas.yview_scroll(delta, "units")
+            except:
+                # 兼容性处理
+                canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
         
-        # 绑定多种滚动事件
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows
-        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))  # Linux
-        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))   # Linux
+        # 绑定滚动事件仅到canvas，而非全局
+        canvas.bind("<MouseWheel>", _on_mousewheel)  # Windows
+        canvas.bind("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))  # Linux
+        canvas.bind("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))   # Linux
+        
+        # 焦点管理，确保滚动可用
+        canvas.focus_set()
+        
+        # 优化canvas更新
+        def optimize_canvas_updates():
+            canvas.update_idletasks()
+        
+        self.canvas_update_callback = optimize_canvas_updates
         
         # 底部信息栏
         info_frame = ttk.Frame(main_frame)
@@ -198,13 +218,19 @@ class PaperWidget:
         self.info_label.pack(side=tk.LEFT)
         
     def create_paper_card(self, paper, index):
-        """创建单个论文卡片 - Material Design风格（响应式）"""
-        colors = self.theme_manager.get_current_colors()
+        """创建单个论文卡片 - Material Design风格（响应式优化版本）"""
+        # 获取当前缩放因子（不缓存scale，确保响应式）
+        scale = getattr(self, 'current_scale_factor', 1.0)
+        
+        # 缓存颜色计算（但不缓存scale）
+        if not hasattr(self, '_cached_colors'):
+            self._cached_colors = self.theme_manager.get_current_colors()
+        
+        colors = self._cached_colors
         conference_type = self.theme_manager.get_conference_type(paper['conference'])
         conf_colors = self.theme_manager.get_conference_colors(conference_type)
         
-        # 计算动态内边距和间距
-        scale = getattr(self, 'current_scale_factor', 1.0)
+        # 计算动态内边距和间距（优化版本）
         padding_x = max(15, int(20 * scale))
         padding_y = max(8, int(12 * scale))
         card_padding = max(16, int(20 * scale))
@@ -357,7 +383,7 @@ class PaperWidget:
         webbrowser.open(url)
     
     def toggle_theme(self):
-        """切换深色/浅色主题"""
+        """切换深色/浅色主题（性能优化版本）"""
         current_theme = self.theme_manager.toggle_theme()
         
         # 更新主题按钮文本
@@ -366,14 +392,17 @@ class PaperWidget:
         else:
             self.theme_btn.config(text="🌙 深色主题")
         
+        # 清除缓存的颜色
+        if hasattr(self, '_cached_colors'):
+            del self._cached_colors
+        
         # 更新画布背景颜色
         colors = self.theme_manager.get_current_colors()
-        for widget in self.papers_frame.winfo_children():
-            if isinstance(widget, tk.Canvas):
-                widget.config(bg=colors["bg"])
+        if hasattr(self, 'canvas'):
+            self.canvas.config(bg=colors["bg"])
         
-        # 刷新论文卡片显示以应用新主题
-        self.refresh_papers()
+        # 使用异步刷新避免阻塞UI
+        self.root.after_idle(self.refresh_paper_display)
     
     def toggle_topmost(self):
         """切换窗口置顶状态"""
@@ -445,47 +474,109 @@ class PaperWidget:
         self.current_papers = []
         self.info_label.config(text="📋 数据库已清空，请更新数据库获取新论文")
     
-    def on_window_resize(self, event):
-        """窗口大小变化时的响应函数"""
+    def on_window_resize_debounced(self, event):
+        """窗口大小变化时的防抖响应函数"""
         # 只响应主窗口的大小变化
         if event.widget != self.root:
             return
+        
+        # 标记正在调整大小
+        self.is_resizing = True
+        
+        # 取消之前的定时器
+        if self.resize_timer:
+            self.root.after_cancel(self.resize_timer)
+        
+        # 设置新的定时器（防抖延迟200ms）
+        self.resize_timer = self.root.after(200, self.handle_window_resize)
+    
+    def handle_window_resize(self):
+        """实际处理窗口大小变化"""
+        try:
+            # 获取当前窗口尺寸
+            window_width = self.root.winfo_width()
+            window_height = self.root.winfo_height()
+            current_size = (window_width, window_height)
             
-        # 获取当前窗口尺寸
-        window_width = self.root.winfo_width()
-        window_height = self.root.winfo_height()
+            # 检查尺寸是否真的发生了变化
+            if current_size == self.last_window_size:
+                return
+            
+            self.last_window_size = current_size
+            
+            # 计算缩放因子
+            base_width = 600  # 基准宽度
+            scale_factor = max(0.8, min(2.0, window_width / base_width))
+            
+            # 如果缩放因子变化显著，更新界面
+            if abs(scale_factor - self.current_scale_factor) > 0.1:
+                self.current_scale_factor = scale_factor
+                self.update_responsive_layout()
         
-        # 计算缩放因子
-        base_width = 600  # 基准宽度
-        scale_factor = max(0.8, min(2.0, window_width / base_width))
-        
-        # 如果缩放因子变化显著，更新界面
-        if abs(scale_factor - self.current_scale_factor) > 0.1:
-            self.current_scale_factor = scale_factor
-            self.update_responsive_layout()
+        finally:
+            # 重置调整大小标记
+            self.is_resizing = False
+            self.resize_timer = None
     
     def update_responsive_layout(self):
-        """更新响应式布局"""
+        """更新响应式布局（性能优化版本）"""
         try:
+            # 避免在调整大小过程中频繁更新
+            if self.is_resizing:
+                return
+            
             # 更新字体缩放
             self.theme_manager.current_scale_factor = self.current_scale_factor
             
-            # 重新刷新论文卡片以应用新的缩放
+            # 清除颜色缓存（但不清除scale缓存，因为我们不再缓存scale）
+            if hasattr(self, '_cached_colors'):
+                del self._cached_colors
+            
+            # 清除主题管理器中的字体缓存，确保新的scale生效
+            if hasattr(self.theme_manager, '_font_cache'):
+                self.theme_manager._font_cache.clear()
+            
+            # 重新刷新论文卡片以应用新的缩放（使用异步更新）
             if self.current_papers:
-                self.refresh_paper_display()
+                self.root.after_idle(self.refresh_paper_display)
                 
         except Exception as e:
             print(f"响应式布局更新警告: {e}")
     
     def refresh_paper_display(self):
-        """仅刷新论文显示（不重新获取数据）"""
-        # 清空当前显示
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
+        """仅刷新论文显示（不重新获取数据）- 性能优化版本"""
+        # 避免在调整大小时重复刷新
+        if self.is_resizing:
+            return
         
-        # 重新显示论文
-        for i, paper in enumerate(self.current_papers):
-            self.create_paper_card(paper, i)
+        try:
+            # 暂停canvas更新以提高性能
+            if hasattr(self, 'canvas'):
+                self.canvas.configure(scrollregion=(0, 0, 0, 0))
+            
+            # 批量销毁旧控件
+            children = self.scrollable_frame.winfo_children()
+            for widget in children:
+                widget.destroy()
+            
+            # 清除颜色缓存，准备重新创建
+            if hasattr(self, '_cached_colors'):
+                del self._cached_colors
+                
+            # 清除主题管理器中的字体缓存，确保响应式字体生效
+            if hasattr(self.theme_manager, '_font_cache'):
+                self.theme_manager._font_cache.clear()
+            
+            # 重新显示论文（使用当前的scale因子）
+            for i, paper in enumerate(self.current_papers):
+                self.create_paper_card(paper, i)
+            
+            # 恢复canvas滚动区域
+            if hasattr(self, 'canvas'):
+                self.root.after_idle(lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        
+        except Exception as e:
+            print(f"刷新显示警告: {e}")
     
     def run(self):
         """运行应用"""
