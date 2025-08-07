@@ -1,4 +1,12 @@
 {
+  "ui_themes": {
+    "available_themes": ["light", "dark"],
+    "conference_icons": {
+      "ai": "🤖",
+      "security": "🔐",
+      "default": "📄"
+    }
+  },
   "conferences": {
     "ai": [
       {"name": "NeurIPS", "keywords": ["NeurIPS", "Neural Information Processing Systems", "NIPS"]},
@@ -20,9 +28,11 @@
   "settings": {
     "papers_per_refresh": 5,
     "cache_days": 90,
-    "window_width": 450,
-    "window_height": 600,
+    "window_width": 700,
+    "window_height": 800,
     "refresh_interval_hours": 24,
+    "default_theme": "light",
+    "save_theme_preference": true,
     "arxiv_categories": ["cs.AI", "cs.LG", "cs.CV", "cs.CL", "cs.CR", "cs.NI"]
   }
 }

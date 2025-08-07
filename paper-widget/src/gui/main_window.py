@@ -6,6 +6,7 @@ import threading
 from datetime import datetime
 import sys
 import os
+from .theme_manager import ThemeManager
 
 # 添加父目录到路径以导入其他模块
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,18 +19,21 @@ except ImportError:
 class PaperWidget:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("AI & Security Papers")
+        self.root.title("✨ 论文推送桌面组件")
         
         # 加载配置
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config.json")
         with open(config_path, 'r', encoding='utf-8') as f:
             self.config = json.load(f)
         
-        # 设置窗口
-        width = self.config['settings']['window_width']
-        height = self.config['settings']['window_height']
+        # 初始化主题管理器
+        self.theme_manager = ThemeManager(self.root)
+        
+        # 设置窗口（增大默认尺寸）
+        width = max(600, self.config['settings']['window_width'])
+        height = max(700, self.config['settings']['window_height'])
         self.root.geometry(f"{width}x{height}")
-        self.root.minsize(350, 400)
+        self.root.minsize(500, 600)  # 增大最小尺寸
         
         # 设置窗口图标（可选）
         self.root.iconbitmap(default='')
@@ -40,8 +44,15 @@ class PaperWidget:
         # 当前显示的论文
         self.current_papers = []
         
+        # 响应式布局参数
+        self.current_scale_factor = 1.0
+        self.min_card_width = 400
+        
         # 创建UI
         self.setup_ui()
+        
+        # 绑定窗口尺寸变化事件
+        self.root.bind('<Configure>', self.on_window_resize)
         
         # 首次加载论文
         self.refresh_papers()
@@ -51,135 +62,240 @@ class PaperWidget:
         
     def setup_ui(self):
         # 主框架
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.root, padding="15")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 配置网格权重
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+        
+        # 标题区域
+        title_frame = ttk.Frame(main_frame)
+        title_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 15))
+        
+        title_label = ttk.Label(
+            title_frame,
+            text="📄 AI & Security Papers",
+            font=self.theme_manager.get_font('title')
+        )
+        title_label.pack(side=tk.LEFT)
+        
+        # 主题切换按钮（增加内边距）
+        self.theme_btn = ttk.Button(
+            title_frame,
+            text="🌙 深色主题",
+            command=self.toggle_theme,
+            style="Secondary.TButton"
+        )
+        self.theme_btn.pack(side=tk.RIGHT, pady=2, ipady=4)
         
         # 顶部工具栏
         toolbar = ttk.Frame(main_frame)
-        toolbar.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        toolbar.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 15))
         
-        # 刷新按钮
+        # 按钮容器
+        btn_frame = ttk.Frame(toolbar)
+        btn_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        # 刷新按钮（增大字体和内边距）
         self.refresh_btn = ttk.Button(
-            toolbar, 
+            btn_frame, 
             text="🔄 刷新论文", 
-            command=self.refresh_papers
+            command=self.refresh_papers,
+            style="Primary.TButton"
         )
-        self.refresh_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self.refresh_btn.pack(side=tk.LEFT, padx=(0, 12), pady=2, ipady=4)
         
         # 更新缓存按钮
         self.update_btn = ttk.Button(
-            toolbar,
+            btn_frame,
             text="📥 更新数据库",
-            command=self.update_cache_async
+            command=self.update_cache_async,
+            style="Secondary.TButton"
         )
-        self.update_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self.update_btn.pack(side=tk.LEFT, padx=(0, 12), pady=2, ipady=4)
         
         # 置顶按钮
         self.topmost_btn = ttk.Button(
-            toolbar,
+            btn_frame,
             text="📌 置顶窗口",
-            command=self.toggle_topmost
+            command=self.toggle_topmost,
+            style="Secondary.TButton"
         )
-        self.topmost_btn.pack(side=tk.LEFT, padx=(0, 10))
+        self.topmost_btn.pack(side=tk.LEFT, padx=(0, 12), pady=2, ipady=4)
         
         # 清空数据库按钮
         self.clear_btn = ttk.Button(
-            toolbar,
+            btn_frame,
             text="🗑️ 清空缓存",
-            command=self.clear_database_with_confirm
+            command=self.clear_database_with_confirm,
+            style="Secondary.TButton"
         )
-        self.clear_btn.pack(side=tk.LEFT)
+        self.clear_btn.pack(side=tk.LEFT, pady=2, ipady=4)
         
         # 状态标签
-        self.status_label = ttk.Label(toolbar, text="就绪")
+        self.status_label = ttk.Label(
+            toolbar, 
+            text="✅ 就绪",
+            style="Status.TLabel"
+        )
         self.status_label.pack(side=tk.RIGHT)
         
         # 论文显示区域
         self.papers_frame = ttk.Frame(main_frame)
-        self.papers_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.papers_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # 创建Canvas和滚动条
-        canvas = tk.Canvas(self.papers_frame, highlightthickness=0)
+        # 创建Canvas和滚动条（响应式改进）
+        canvas = tk.Canvas(
+            self.papers_frame, 
+            highlightthickness=0,
+            bg=self.theme_manager.get_current_colors()["bg"]
+        )
         scrollbar = ttk.Scrollbar(self.papers_frame, orient="vertical", command=canvas.yview)
         self.scrollable_frame = ttk.Frame(canvas)
         
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # 保存canvas引用以便后续更新
+        self.canvas = canvas
         
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        def on_frame_configure(event):
+            """scrollable_frame尺寸变化时更新滚动区域"""
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        def on_canvas_configure(event):
+            """canvas尺寸变化时更新内部框架宽度"""
+            canvas.itemconfig(canvas_window, width=event.width)
+        
+        self.scrollable_frame.bind("<Configure>", on_frame_configure)
+        canvas.bind("<Configure>", on_canvas_configure)
+        
+        canvas_window = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 绑定鼠标滚轮
+        # 绑定鼠标滚轮和触摸板滚动
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        # 绑定多种滚动事件
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)  # Windows
+        canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))  # Linux
+        canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))   # Linux
         
         # 底部信息栏
         info_frame = ttk.Frame(main_frame)
-        info_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        info_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(15, 0))
         
-        self.info_label = ttk.Label(info_frame, text="", font=('Arial', 9))
+        self.info_label = ttk.Label(
+            info_frame, 
+            text="", 
+            font=self.theme_manager.get_font('status'),
+            style="Status.TLabel"
+        )
         self.info_label.pack(side=tk.LEFT)
         
     def create_paper_card(self, paper, index):
-        """创建单个论文卡片"""
-        # 论文卡片框架
-        card_frame = ttk.LabelFrame(
-            self.scrollable_frame,
-            text=f"  {paper['conference']}  ",
-            padding="10"
-        )
-        card_frame.pack(fill="x", pady=5, padx=5)
+        """创建单个论文卡片 - Material Design风格（响应式）"""
+        colors = self.theme_manager.get_current_colors()
+        conference_type = self.theme_manager.get_conference_type(paper['conference'])
+        conf_colors = self.theme_manager.get_conference_colors(conference_type)
         
-        # 标题（可点击）
-        title_label = tk.Label(
-            card_frame,
-            text=paper['title'][:100] + ("..." if len(paper['title']) > 100 else ""),
-            font=('Arial', 10, 'bold'),
-            fg="blue",
-            cursor="hand2",
-            wraplength=400,
-            justify="left"
-        )
-        title_label.pack(anchor="w", pady=(0, 5))
+        # 计算动态内边距和间距
+        scale = getattr(self, 'current_scale_factor', 1.0)
+        padding_x = max(15, int(20 * scale))
+        padding_y = max(8, int(12 * scale))
+        card_padding = max(16, int(20 * scale))
         
-        # 绑定点击事件
-        title_label.bind("<Button-1>", lambda e: self.open_paper(paper['pdf_url']))
+        # 主卡片容器
+        card_container = ttk.Frame(self.scrollable_frame)
+        card_container.pack(fill="x", pady=padding_y, padx=padding_x)
         
-        # 作者
-        authors = paper['authors']
-        if len(authors) > 60:
-            authors = authors[:60] + "..."
-        authors_label = ttk.Label(
-            card_frame,
-            text=f"作者: {authors}",
-            font=('Arial', 9)
+        # 创建卡片样式
+        card_style = self.theme_manager.create_card_style(conference_type)
+        
+        # 论文卡片框架（动态内边距）
+        card_frame = ttk.Frame(
+            card_container,
+            style=card_style,
+            padding=str(card_padding)
         )
-        authors_label.pack(anchor="w", pady=(0, 3))
+        card_frame.pack(fill="x", expand=True)
+        
+        # 顶部：会议标签和发布日期
+        header_frame = ttk.Frame(card_frame)
+        header_frame.pack(fill="x", pady=(0, max(10, int(15 * scale))))
+        
+        # 会议标签（动态大小）
+        label_padding = max(6, int(10 * scale))
+        conference_label = tk.Label(
+            header_frame,
+            text=f" {paper['conference']} ",
+            font=self.theme_manager.get_font('caption', scale),
+            bg=conf_colors.get("border", colors["primary"]),
+            fg="white",
+            padx=label_padding,
+            pady=max(3, int(4 * scale))
+        )
+        conference_label.pack(side=tk.LEFT)
         
         # 发布日期
         date_label = ttk.Label(
-            card_frame,
-            text=f"发布日期: {paper['published']}",
-            font=('Arial', 9),
-            foreground="gray"
+            header_frame,
+            text=f"📅 {paper['published']}",
+            font=self.theme_manager.get_font('caption', scale),
+            style="Subtitle.TLabel"
         )
-        date_label.pack(anchor="w")
+        date_label.pack(side=tk.RIGHT)
+        
+        # 标题（可点击）（动态换行宽度）
+        window_width = self.root.winfo_width()
+        wrap_length = max(400, int(window_width * 0.75))
+        title_length = max(80, int(120 * scale))
+        title_text = paper['title'][:title_length] + ("..." if len(paper['title']) > title_length else "")
+        
+        title_label = tk.Label(
+            card_frame,
+            text=title_text,
+            font=self.theme_manager.get_font('subtitle', scale),
+            fg=colors["primary"],
+            bg=colors["card_bg"],
+            cursor="hand2",
+            wraplength=wrap_length,
+            justify="left",
+            anchor="w"
+        )
+        title_label.pack(fill="x", pady=(0, max(6, int(10 * scale))))
+        
+        # 绑定点击事件和悬停效果
+        title_label.bind("<Button-1>", lambda e: self.open_paper(paper['pdf_url']))
+        title_label.bind("<Enter>", lambda e: title_label.config(fg=colors["secondary"]))
+        title_label.bind("<Leave>", lambda e: title_label.config(fg=colors["primary"]))
+        
+        # 作者信息（动态换行）
+        authors = paper['authors']
+        author_length = max(60, int(100 * scale))
+        if len(authors) > author_length:
+            authors = authors[:author_length] + "..."
+        authors_label = ttk.Label(
+            card_frame,
+            text=f"👥 {authors}",
+            font=self.theme_manager.get_font('body', scale),
+            style="Subtitle.TLabel",
+            wraplength=wrap_length
+        )
+        authors_label.pack(fill="x", pady=(0, max(4, int(6 * scale))))
+        
+        # 底部分隔线
+        if index < len(self.current_papers) - 1:
+            separator = ttk.Separator(card_container, orient='horizontal')
+            separator.pack(fill="x", pady=(8, 0))
         
     def refresh_papers(self):
         """刷新显示的论文"""
-        self.status_label.config(text="正在加载...")
+        self.status_label.config(text="⏳ 正在加载...")
         self.refresh_btn.config(state="disabled")
         
         # 清空当前显示
@@ -203,13 +319,13 @@ class PaperWidget:
             
             # 更新信息
             self.info_label.config(
-                text=f"显示 {len(self.current_papers)} 篇论文 | 最后刷新: {datetime.now().strftime('%H:%M:%S')}"
+                text=f"📊 显示 {len(self.current_papers)} 篇论文 | 最后刷新: {datetime.now().strftime('%H:%M:%S')}"
             )
-            self.status_label.config(text="就绪")
+            self.status_label.config(text="✅ 就绪")
             
         except Exception as e:
             messagebox.showerror("错误", f"加载论文失败: {str(e)}")
-            self.status_label.config(text="错误")
+            self.status_label.config(text="❌ 错误")
         finally:
             self.refresh_btn.config(state="normal")
     
@@ -217,7 +333,7 @@ class PaperWidget:
         """异步更新论文缓存（智能更新版本）"""
         def update():
             self.update_btn.config(state="disabled")
-            self.status_label.config(text="正在智能更新数据库...")
+            self.status_label.config(text="🔄 正在智能更新数据库...")
             
             try:
                 # 优先使用智能更新方法（如果存在）
@@ -225,11 +341,11 @@ class PaperWidget:
                     self.fetcher.update_cache_with_clean()
                 else:
                     self.fetcher.update_cache()
-                self.root.after(0, lambda: self.status_label.config(text="更新完成"))
+                self.root.after(0, lambda: self.status_label.config(text="✅ 更新完成"))
                 self.root.after(0, self.refresh_papers)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("错误", f"更新失败: {str(e)}"))
-                self.root.after(0, lambda: self.status_label.config(text="更新失败"))
+                self.root.after(0, lambda: self.status_label.config(text="❌ 更新失败"))
             finally:
                 self.root.after(0, lambda: self.update_btn.config(state="normal"))
         
@@ -239,6 +355,25 @@ class PaperWidget:
     def open_paper(self, url):
         """在浏览器中打开论文"""
         webbrowser.open(url)
+    
+    def toggle_theme(self):
+        """切换深色/浅色主题"""
+        current_theme = self.theme_manager.toggle_theme()
+        
+        # 更新主题按钮文本
+        if current_theme == "dark":
+            self.theme_btn.config(text="☀️ 浅色主题")
+        else:
+            self.theme_btn.config(text="🌙 深色主题")
+        
+        # 更新画布背景颜色
+        colors = self.theme_manager.get_current_colors()
+        for widget in self.papers_frame.winfo_children():
+            if isinstance(widget, tk.Canvas):
+                widget.config(bg=colors["bg"])
+        
+        # 刷新论文卡片显示以应用新主题
+        self.refresh_papers()
     
     def toggle_topmost(self):
         """切换窗口置顶状态"""
@@ -266,20 +401,20 @@ class PaperWidget:
         """异步清空数据库"""
         def clear():
             self.clear_btn.config(state="disabled")
-            self.status_label.config(text="正在清空数据库...")
+            self.status_label.config(text="🗑️ 正在清空数据库...")
             
             try:
                 # 调用清空数据库方法
                 if hasattr(self.fetcher, 'clear_database'):
                     success = self.fetcher.clear_database(confirm=True)
                     if success:
-                        self.root.after(0, lambda: self.status_label.config(text="数据库已清空"))
-                        self.root.after(0, lambda: messagebox.showinfo("成功", "数据库已清空！\n\n请点击"更新数据库"获取新论文。"))
+                        self.root.after(0, lambda: self.status_label.config(text="✅ 数据库已清空"))
+                        self.root.after(0, lambda: messagebox.showinfo("成功", "数据库已清空！\n\n请点击【更新数据库】获取新论文。"))
                         # 清空当前显示
                         self.root.after(0, self.clear_display)
                     else:
                         self.root.after(0, lambda: messagebox.showerror("错误", "清空数据库失败"))
-                        self.root.after(0, lambda: self.status_label.config(text="清空失败"))
+                        self.root.after(0, lambda: self.status_label.config(text="❌ 清空失败"))
                 else:
                     # 如果使用的是基础版本，手动清空
                     import sqlite3
@@ -291,12 +426,12 @@ class PaperWidget:
                         cursor.execute('DELETE FROM papers')
                         conn.commit()
                         conn.close()
-                        self.root.after(0, lambda: self.status_label.config(text="数据库已清空"))
+                        self.root.after(0, lambda: self.status_label.config(text="✅ 数据库已清空"))
                         self.root.after(0, lambda: messagebox.showinfo("成功", "数据库已清空！"))
                         self.root.after(0, self.clear_display)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("错误", f"清空失败: {str(e)}"))
-                self.root.after(0, lambda: self.status_label.config(text="清空失败"))
+                self.root.after(0, lambda: self.status_label.config(text="❌ 清空失败"))
             finally:
                 self.root.after(0, lambda: self.clear_btn.config(state="normal"))
         
@@ -308,7 +443,49 @@ class PaperWidget:
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
         self.current_papers = []
-        self.info_label.config(text="数据库已清空，请更新数据库获取新论文")
+        self.info_label.config(text="📋 数据库已清空，请更新数据库获取新论文")
+    
+    def on_window_resize(self, event):
+        """窗口大小变化时的响应函数"""
+        # 只响应主窗口的大小变化
+        if event.widget != self.root:
+            return
+            
+        # 获取当前窗口尺寸
+        window_width = self.root.winfo_width()
+        window_height = self.root.winfo_height()
+        
+        # 计算缩放因子
+        base_width = 600  # 基准宽度
+        scale_factor = max(0.8, min(2.0, window_width / base_width))
+        
+        # 如果缩放因子变化显著，更新界面
+        if abs(scale_factor - self.current_scale_factor) > 0.1:
+            self.current_scale_factor = scale_factor
+            self.update_responsive_layout()
+    
+    def update_responsive_layout(self):
+        """更新响应式布局"""
+        try:
+            # 更新字体缩放
+            self.theme_manager.current_scale_factor = self.current_scale_factor
+            
+            # 重新刷新论文卡片以应用新的缩放
+            if self.current_papers:
+                self.refresh_paper_display()
+                
+        except Exception as e:
+            print(f"响应式布局更新警告: {e}")
+    
+    def refresh_paper_display(self):
+        """仅刷新论文显示（不重新获取数据）"""
+        # 清空当前显示
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # 重新显示论文
+        for i, paper in enumerate(self.current_papers):
+            self.create_paper_card(paper, i)
     
     def run(self):
         """运行应用"""
