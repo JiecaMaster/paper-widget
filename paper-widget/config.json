@@ -1,0 +1,28 @@
+{
+  "conferences": {
+    "ai": [
+      {"name": "NeurIPS", "keywords": ["NeurIPS", "Neural Information Processing Systems", "NIPS"]},
+      {"name": "ICML", "keywords": ["ICML", "International Conference on Machine Learning"]},
+      {"name": "ICLR", "keywords": ["ICLR", "International Conference on Learning Representations"]},
+      {"name": "AAAI", "keywords": ["AAAI", "Association for the Advancement of Artificial Intelligence"]},
+      {"name": "CVPR", "keywords": ["CVPR", "Computer Vision and Pattern Recognition"]},
+      {"name": "ICCV", "keywords": ["ICCV", "International Conference on Computer Vision"]},
+      {"name": "ACL", "keywords": ["ACL", "Association for Computational Linguistics"]},
+      {"name": "EMNLP", "keywords": ["EMNLP", "Empirical Methods in Natural Language Processing"]}
+    ],
+    "security": [
+      {"name": "IEEE S&P", "keywords": ["IEEE S&P", "IEEE Symposium on Security and Privacy", "Oakland", "S&P 2025", "S&P 2024", "Security and Privacy"]},
+      {"name": "USENIX Security", "keywords": ["USENIX Security", "USENIX Security Symposium", "USENIX Sec", "Security '25", "Security '24"]},
+      {"name": "CCS", "keywords": ["CCS", "Computer and Communications Security", "ACM CCS", "CCS '25", "CCS '24", "CCS 2025", "CCS 2024"]},
+      {"name": "NDSS", "keywords": ["NDSS", "Network and Distributed System Security", "NDSS 2025", "NDSS 2024", "NDSS Symposium"]}
+    ]
+  },
+  "settings": {
+    "papers_per_refresh": 5,
+    "cache_days": 90,
+    "window_width": 450,
+    "window_height": 600,
+    "refresh_interval_hours": 24,
+    "arxiv_categories": ["cs.AI", "cs.LG", "cs.CV", "cs.CL", "cs.CR", "cs.NI"]
+  }
+}

@@ -1,0 +1,7 @@
+requests==2.31.0
+arxiv==2.1.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
+Pillow==10.1.0
+pystray==0.19.5
+pyinstaller==6.3.0
